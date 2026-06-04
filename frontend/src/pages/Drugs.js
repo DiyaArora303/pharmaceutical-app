@@ -2,17 +2,48 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Icon } from '../components/Icons';
 
-function Modal({ onClose, onSuccess }) {
+const IconPencil = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+  </svg>
+);
+
+function Modal({ onClose, onSuccess, drugToEdit }) {
   const [meta, setMeta] = useState(null);
   const [form, setForm] = useState({ Brand_Name: '', Generic_ID: '', Therapeutic_Class_ID: '', Dosage_Form_ID: '', Regulatory_Status_ID: '', Ingredient_ID: '', Strength: '', Compound_ID: '' });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  useEffect(() => { axios.get('http://localhost:5000/api/drugs/meta').then(r => setMeta(r.data)); }, []);
+  useEffect(() => {
+    axios.get('http://localhost:5000/api/drugs/meta').then(r => {
+      setMeta(r.data);
+      if (drugToEdit) {
+        axios.get(`http://localhost:5000/api/drugs/${drugToEdit.Drug_ID}/details`).then(res => {
+          const detail = res.data;
+          setForm({
+            Brand_Name: detail.Brand_Name,
+            Generic_ID: detail.Generic_ID || '',
+            Therapeutic_Class_ID: detail.Therapeutic_Class_ID || '',
+            Dosage_Form_ID: detail.Dosage_Form_ID || '',
+            Regulatory_Status_ID: detail.Regulatory_Status_ID || '',
+            Ingredient_ID: detail.ingredients[0]?.Ingredient_ID || '',
+            Strength: detail.ingredients[0]?.Strength || '',
+            Compound_ID: detail.compounds[0]?.Compound_ID || ''
+          });
+        });
+      }
+    });
+  }, [drugToEdit]);
 
   const submit = async (e) => {
     e.preventDefault();
-    await axios.post('http://localhost:5000/api/drugs', form);
-    onSuccess('Drug added successfully'); onClose();
+    if (drugToEdit) {
+      await axios.put(`http://localhost:5000/api/drugs/${drugToEdit.Drug_ID}`, form);
+      onSuccess('Drug updated successfully');
+    } else {
+      await axios.post('http://localhost:5000/api/drugs', form);
+      onSuccess('Drug added successfully');
+    }
+    onClose();
   };
 
   if (!meta) return null;
@@ -21,7 +52,7 @@ function Modal({ onClose, onSuccess }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
         <div className="modal-header">
-          <div className="modal-title"><Icon.Plus />Add New Drug</div>
+          <div className="modal-title">{drugToEdit ? <IconPencil style={{ width: 18, height: 18 }} /> : <Icon.Plus />} {drugToEdit ? 'Edit Drug' : 'Add New Drug'}</div>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <form className="modal-form" onSubmit={submit}>
@@ -79,7 +110,7 @@ function Modal({ onClose, onSuccess }) {
           </div>
           <div className="modal-actions">
             <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary"><Icon.Check />Add Drug</button>
+            <button type="submit" className="btn-primary"><Icon.Check />{drugToEdit ? 'Save Changes' : 'Add Drug'}</button>
           </div>
         </form>
       </div>
@@ -87,31 +118,164 @@ function Modal({ onClose, onSuccess }) {
   );
 }
 
+function DetailPanel({ drugId, onClose }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    axios.get(`http://localhost:5000/api/drugs/${drugId}/details`)
+      .then(r => { setDetail(r.data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [drugId]);
+
+  if (loading) return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="drawer" onClick={e => e.stopPropagation()}>
+        <div className="loading"><div className="spinner" /><p>Loading details...</p></div>
+      </div>
+    </div>
+  );
+
+  if (!detail) return null;
+
+  return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="drawer" onClick={e => e.stopPropagation()}>
+        <div className="drawer-header">
+          <div>
+            <h3>{detail.Brand_Name}</h3>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text3)' }}>{detail.Generic_Name}</span>
+          </div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        
+        <div className="drawer-content">
+          <div className="detail-section">
+            <h4>Classification & Status</h4>
+            <div className="detail-grid">
+              <div><strong>Therapeutic Class:</strong> <span className="badge badge-blue">{detail.Class_Name}</span></div>
+              <div><strong>Dosage Form:</strong> {detail.Form_Name}</div>
+              <div><strong>Regulatory Status:</strong> <span className="badge badge-green">{detail.Status_Name}</span></div>
+            </div>
+          </div>
+
+          <div className="detail-section">
+            <h4>Active Ingredients</h4>
+            {detail.ingredients.length === 0 ? <p className="none-text">None listed</p> : (
+              detail.ingredients.map(i => (
+                <div key={i.Ingredient_ID} className="ingredient-row">
+                  <span className="dot" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
+                  <strong>{i.Ingredient_Name}</strong>
+                  <span className="strength">{i.Strength}</span>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="detail-section">
+            <h4>Chemical Compounds</h4>
+            {detail.compounds.length === 0 ? <p className="none-text">None linked</p> : (
+              detail.compounds.map(c => (
+                <div key={c.Compound_ID} className="compound-row">
+                  <strong>{c.Compound_Name}</strong>
+                  <span className="formula">{c.Chemical_Formula}</span>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="detail-section">
+            <h4>Safety & Side Effects</h4>
+            {detail.sideEffects.length === 0 ? <p className="none-text">No side effects reported</p> : (
+              <div className="side-effects-list">
+                {detail.sideEffects.map(se => {
+                  const sCls = se.Severity === 'Severe' ? 'badge-red' : se.Severity === 'Moderate' ? 'badge-amber' : 'badge-gray';
+                  return (
+                    <div key={se.SideEffect_ID} className="se-row">
+                      <span>{se.Description}</span>
+                      <span className={`badge ${sCls}`}>{se.Severity}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="detail-section">
+            <h4>Contraindications</h4>
+            {detail.contraindications.length === 0 ? <p className="none-text">No contraindications listed</p> : (
+              <div className="contra-list">
+                {detail.contraindications.map(c => (
+                  <div key={c.Contraindication_ID} style={{ margin: '2px 0' }}>
+                    <span className="badge badge-red">{c.Condition_Name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Drugs({ user }) {
-  const [drugs, setDrugs]       = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [showModal, setModal]   = useState(false);
-  const [toast, setToast]       = useState('');
+  const [drugs, setDrugs]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [search, setSearch]           = useState('');
+  const [filterClass, setFilterClass] = useState('');
+  const [filterStatus, setFilterStatus]= useState('');
+  const [classes, setClasses]         = useState([]);
+  const [statuses, setStatuses]       = useState([]);
+  
+  const [showModal, setModal]         = useState(false);
+  const [drugToEdit, setDrugToEdit]   = useState(null);
+  const [selectedDrugId, setSelectedDrugId] = useState(null);
+  const [toast, setToast]             = useState('');
 
   const canAdd    = ['admin', 'researcher'].includes(user.role);
+  const canEdit   = ['admin', 'researcher'].includes(user.role);
   const canDelete = user.role === 'admin';
 
-  const load = () => axios.get('http://localhost:5000/api/drugs').then(r => { setDrugs(r.data); setLoading(false); });
-  useEffect(() => { load(); }, []);
+  const load = () => {
+    axios.get('http://localhost:5000/api/drugs').then(r => { setDrugs(r.data); setLoading(false); });
+  };
 
-  const del = async (id) => {
+  useEffect(() => {
+    load();
+    axios.get('http://localhost:5000/api/drugs/meta').then(r => {
+      setClasses(r.data.classes);
+      setStatuses(r.data.statuses);
+    });
+  }, []);
+
+  const del = async (id, e) => {
+    e.stopPropagation();
     if (!window.confirm('Delete this drug and all its related records?')) return;
-    await axios.delete(`http://localhost:5000/api/drugs/${id}`);
-    flash('Drug deleted successfully'); load();
+    try {
+      await axios.delete(`http://localhost:5000/api/drugs/${id}`);
+      flash('Drug deleted successfully');
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete drug');
+    }
+  };
+
+  const startEdit = (d, e) => {
+    e.stopPropagation();
+    setDrugToEdit(d);
+    setModal(true);
   };
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
-  const filtered = drugs.filter(d =>
-    d.Brand_Name.toLowerCase().includes(search.toLowerCase()) ||
-    d.Generic_Name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = drugs.filter(d => {
+    const matchesSearch = d.Brand_Name.toLowerCase().includes(search.toLowerCase()) || d.Generic_Name.toLowerCase().includes(search.toLowerCase());
+    const matchesClass  = filterClass === '' || d.Class_Name === filterClass;
+    const matchesStatus = filterStatus === '' || d.Status_Name === filterStatus;
+    return matchesSearch && matchesClass && matchesStatus;
+  });
 
   if (loading) return <div className="loading"><div className="spinner" /><p>Loading drugs...</p></div>;
 
@@ -122,43 +286,65 @@ export default function Drugs({ user }) {
           <div className="page-title"><Icon.Pill />Drug Registry</div>
           <div className="page-sub">{drugs.length} drugs across all therapeutic classes</div>
         </div>
-        {canAdd && <button className="btn-primary" onClick={() => setModal(true)}><Icon.Plus />Add Drug</button>}
+        {canAdd && <button className="btn-primary" onClick={() => { setDrugToEdit(null); setModal(true); }}><Icon.Plus />Add Drug</button>}
       </div>
 
       <div className="card">
-        <div className="search-wrap">
-          <Icon.Search />
-          <input className="search-input" placeholder="Search by brand or generic name..." value={search} onChange={e => setSearch(e.target.value)} />
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div className="search-wrap" style={{ marginBottom: 0 }}>
+            <Icon.Search />
+            <input className="search-input" placeholder="Search by brand or generic name..." value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div className="field">
+            <select value={filterClass} onChange={e => setFilterClass(e.target.value)} style={{ padding: '9px 14px' }}>
+              <option value="">All Therapeutic Classes</option>
+              {classes.map(c => <option key={c.Therapeutic_Class_ID} value={c.Class_Name}>{c.Class_Name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ padding: '9px 14px' }}>
+              <option value="">All Regulatory Statuses</option>
+              {statuses.map(s => <option key={s.Regulatory_Status_ID} value={s.Status_Name}>{s.Status_Name}</option>)}
+            </select>
+          </div>
         </div>
+
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>#</th><th>Brand Name</th><th>Generic Name</th>
                 <th>Therapeutic Class</th><th>Dosage Form</th><th>Status</th>
-                {canDelete && <th>Action</th>}
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={canDelete ? 7 : 6}>
+                <tr><td colSpan={7}>
                   <div className="empty-state"><Icon.Search /><p>No drugs found</p></div>
                 </td></tr>
               ) : filtered.map((d, i) => (
-                <tr key={d.Drug_ID}>
+                <tr key={d.Drug_ID} onClick={() => setSelectedDrugId(d.Drug_ID)} style={{ cursor: 'pointer' }}>
                   <td style={{ color: 'var(--text3)', fontSize: '0.8rem' }}>{i + 1}</td>
                   <td><strong>{d.Brand_Name}</strong></td>
                   <td>{d.Generic_Name}</td>
                   <td><span className="badge badge-blue">{d.Class_Name}</span></td>
                   <td>{d.Form_Name}</td>
                   <td><span className="badge badge-green">{d.Status_Name}</span></td>
-                  {canDelete && (
-                    <td>
-                      <button className="btn-danger" onClick={() => del(d.Drug_ID)}>
-                        <Icon.Trash />Delete
-                      </button>
-                    </td>
-                  )}
+                  <td>
+                    <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                      {canEdit && (
+                        <button className="btn-secondary" style={{ padding: '5px 10px', fontSize: '0.78rem' }} onClick={(e) => startEdit(d, e)}>
+                          <IconPencil style={{ width: 12, height: 12, display: 'inline', marginRight: 4 }} />Edit
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button className="btn-danger" onClick={(e) => del(d.Drug_ID, e)}>
+                          <Icon.Trash />Delete
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -166,7 +352,8 @@ export default function Drugs({ user }) {
         </div>
       </div>
 
-      {showModal && <Modal onClose={() => setModal(false)} onSuccess={(m) => { flash(m); load(); }} />}
+      {showModal && <Modal drugToEdit={drugToEdit} onClose={() => setModal(false)} onSuccess={(m) => { flash(m); load(); }} />}
+      {selectedDrugId && <DetailPanel drugId={selectedDrugId} onClose={() => setSelectedDrugId(null)} />}
       {toast && <div className="toast"><Icon.Check />{toast}</div>}
     </div>
   );
