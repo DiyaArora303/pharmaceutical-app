@@ -10,12 +10,14 @@ import SideEffects from './pages/SideEffects';
 import Compounds from './pages/Compounds';
 import Contraindications from './pages/Contraindications';
 import AuditLog from './pages/AuditLog';
+import Planner from './pages/Planner';
 import './App.css';
 
 const NAV = [
   { to: '/',                end: true,  label: 'Dashboard',        Icon: Icon.Dashboard,    roles: ['admin','doctor','researcher'] },
   { to: '/drugs',           end: false, label: 'Drugs',            Icon: Icon.Pill,         roles: ['admin','doctor','researcher'], canAdd: ['admin','researcher'] },
   { to: '/interactions',    end: false, label: 'Interactions',     Icon: Icon.Alert,        roles: ['admin','doctor','researcher'], canAdd: ['admin'] },
+  { to: '/planner',         end: false, label: 'Treatment Planner',Icon: Icon.Flask,        roles: ['admin','doctor','researcher'] },
   { to: '/ingredients',     end: false, label: 'Ingredients',      Icon: Icon.Ingredient,   roles: ['admin','doctor','researcher'] },
   { to: '/sideeffects',     end: false, label: 'Side Effects',     Icon: Icon.Stethoscope,  roles: ['admin','doctor','researcher'], canAdd: ['admin'] },
   { to: '/compounds',       end: false, label: 'Compounds',        Icon: Icon.Molecule,     roles: ['admin','doctor','researcher'], canAdd: ['admin','researcher'] },
@@ -86,6 +88,7 @@ export default function App() {
             <Route path="/"                  element={<Dashboard />} />
             <Route path="/drugs"             element={<Drugs user={user} />} />
             <Route path="/interactions"      element={<Interactions user={user} />} />
+            <Route path="/planner"           element={<Planner />} />
             <Route path="/ingredients"       element={<Ingredients />} />
             <Route path="/sideeffects"       element={<SideEffects user={user} />} />
             <Route path="/compounds"         element={<Compounds user={user} />} />
