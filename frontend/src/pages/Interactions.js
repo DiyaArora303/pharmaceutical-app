@@ -82,7 +82,6 @@ function SafetyChecker({ drugs, interactions }) {
     const d1 = drugs.find(d => d.Drug_ID === parseInt(ddDrug1));
     const d2 = drugs.find(d => d.Drug_ID === parseInt(ddDrug2));
 
-    // Look for interaction in both directions
     const match = interactions.find(item => 
       (item.Drug_One === d1.Brand_Name && item.Drug_Two === d2.Brand_Name) ||
       (item.Drug_One === d2.Brand_Name && item.Drug_Two === d1.Brand_Name)
@@ -109,7 +108,6 @@ function SafetyChecker({ drugs, interactions }) {
     const selectedDrug = drugs.find(d => d.Drug_ID === parseInt(ciDrug));
     const selectedCi = contraindications.find(c => c.Contraindication_ID === parseInt(ciCondition));
 
-    // Check if the selected drug's Brand_Name is linked to this contraindication
     const isContraindicated = selectedCi.Drugs && selectedCi.Drugs.split(', ').includes(selectedDrug.Brand_Name);
 
     if (isContraindicated) {
@@ -209,13 +207,336 @@ function SafetyChecker({ drugs, interactions }) {
   );
 }
 
+function SafetyNetworkGraph({ drugs, interactions }) {
+  const canvasRef = React.useRef(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+
+    const nodes = drugs.map((d) => ({
+      id: d.Drug_ID,
+      label: d.Brand_Name,
+      className: d.Class_Name,
+      x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+      y: canvas.height / 2 + (Math.random() - 0.5) * 200,
+      vx: 0,
+      vy: 0,
+      radius: 20
+    }));
+
+    const links = [];
+    interactions.forEach((item, idx) => {
+      const d1 = drugs.find(d => d.Brand_Name === item.Drug_One);
+      const d2 = drugs.find(d => d.Brand_Name === item.Drug_Two);
+      if (d1 && d2) {
+        links.push({
+          id: idx,
+          source: d1.Drug_ID,
+          target: d2.Drug_ID,
+          desc: item.Interaction_Description
+        });
+      }
+    });
+
+    let hoveredNode = null;
+    let draggedNode = null;
+    let isDragging = false;
+
+    const getMousePos = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (canvas.width / rect.width),
+        y: (e.clientY - rect.top) * (canvas.height / rect.height)
+      };
+    };
+
+    const handleMouseMove = (e) => {
+      const pos = getMousePos(e);
+      if (isDragging && draggedNode) {
+        draggedNode.x = pos.x;
+        draggedNode.y = pos.y;
+      } else {
+        hoveredNode = null;
+        for (let node of nodes) {
+          const dx = node.x - pos.x;
+          const dy = node.y - pos.y;
+          if (dx * dx + dy * dy < node.radius * node.radius) {
+            hoveredNode = node;
+            break;
+          }
+        }
+      }
+    };
+
+    const handleMouseDown = (e) => {
+      const pos = getMousePos(e);
+      for (let node of nodes) {
+        const dx = node.x - pos.x;
+        const dy = node.y - pos.y;
+        if (dx * dx + dy * dy < node.radius * node.radius) {
+          draggedNode = node;
+          isDragging = true;
+          break;
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      isDragging = false;
+      draggedNode = null;
+    };
+
+    const handleClick = (e) => {
+      const pos = getMousePos(e);
+      let clicked = null;
+      for (let node of nodes) {
+        const dx = node.x - pos.x;
+        const dy = node.y - pos.y;
+        if (dx * dx + dy * dy < node.radius * node.radius) {
+          clicked = node;
+          break;
+        }
+      }
+      setSelectedNode(clicked);
+    };
+
+    canvas.addEventListener('mousemove', handleMouseMove);
+    canvas.addEventListener('mousedown', handleMouseDown);
+    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('click', handleClick);
+
+    const repulsion = 1000;
+    const gravity = 0.02;
+    const friction = 0.88;
+    const linkStrength = 0.04;
+    const desiredLength = 130;
+
+    const update = () => {
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+
+      for (let i = 0; i < nodes.length; i++) {
+        const n1 = nodes[i];
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n2 = nodes[j];
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const distSq = dx * dx + dy * dy || 1;
+          const dist = Math.sqrt(distSq);
+          if (dist < 180) {
+            const force = repulsion / distSq;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            n1.vx -= fx;
+            n1.vy -= fy;
+            n2.vx += fx;
+            n2.vy += fy;
+          }
+        }
+      }
+
+      links.forEach(link => {
+        const n1 = nodes.find(n => n.id === link.source);
+        const n2 = nodes.find(n => n.id === link.target);
+        if (!n1 || !n2) return;
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const diff = dist - desiredLength;
+        const force = diff * linkStrength;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        n1.vx += fx;
+        n1.vy += fy;
+        n2.vx -= fx;
+        n2.vy -= fy;
+      });
+
+      nodes.forEach(node => {
+        if (isDragging && draggedNode && draggedNode.id === node.id) return;
+
+        node.vx += (cx - node.x) * gravity;
+        node.vy += (cy - node.y) * gravity;
+
+        node.x += node.vx;
+        node.y += node.vy;
+        node.vx *= friction;
+        node.vy *= friction;
+
+        if (node.x < node.radius) node.x = node.radius;
+        if (node.x > canvas.width - node.radius) node.x = canvas.width - node.radius;
+        if (node.y < node.radius) node.y = node.radius;
+        if (node.y > canvas.height - node.radius) node.y = canvas.height - node.radius;
+      });
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = 'rgba(228, 231, 239, 0.3)';
+      ctx.lineWidth = 1;
+      const step = 20;
+      for (let x = 0; x < canvas.width; x += step) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += step) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      const activeNode = hoveredNode || selectedNode;
+
+      links.forEach(link => {
+        const n1 = nodes.find(n => n.id === link.source);
+        const n2 = nodes.find(n => n.id === link.target);
+        if (!n1 || !n2) return;
+
+        let isActiveLink = false;
+        let isDimmed = false;
+
+        if (activeNode) {
+          if (activeNode.id === n1.id || activeNode.id === n2.id) {
+            isActiveLink = true;
+          } else {
+            isDimmed = true;
+          }
+        }
+
+        ctx.strokeStyle = isActiveLink ? '#EF4444' : isDimmed ? 'rgba(228, 231, 239, 0.2)' : 'rgba(148, 163, 184, 0.4)';
+        ctx.lineWidth = isActiveLink ? 3.5 : 2;
+        ctx.beginPath();
+        ctx.moveTo(n1.x, n1.y);
+        ctx.lineTo(n2.x, n2.y);
+        ctx.stroke();
+      });
+
+      nodes.forEach(node => {
+        let isConnected = false;
+        let isDimmed = false;
+
+        if (activeNode) {
+          if (activeNode.id === node.id) {
+            isConnected = true;
+          } else {
+            const hasLink = links.some(l => 
+              (l.source === activeNode.id && l.target === node.id) ||
+              (l.target === activeNode.id && l.source === node.id)
+            );
+            if (hasLink) isConnected = true;
+            else isDimmed = true;
+          }
+        }
+
+        ctx.shadowBlur = isConnected ? 12 : 4;
+        ctx.shadowColor = isConnected ? '#EF4444' : 'rgba(0, 0, 0, 0.15)';
+
+        ctx.fillStyle = isConnected ? '#FEF2F2' : isDimmed ? 'rgba(241, 245, 249, 0.4)' : '#FFFFFF';
+        ctx.strokeStyle = isConnected ? '#EF4444' : isDimmed ? 'rgba(228, 231, 239, 0.4)' : 'var(--border2)';
+        ctx.lineWidth = isConnected ? 3 : 1.5;
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = isConnected ? '#991B1B' : isDimmed ? 'rgba(148, 163, 184, 0.4)' : 'var(--text)';
+        ctx.font = `bold 9.5px 'DM Sans', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        let label = node.label;
+        if (label.length > 7) label = label.substring(0, 6) + '..';
+        ctx.fillText(label, node.x, node.y);
+      });
+    };
+
+    const tick = () => {
+      update();
+      draw();
+      animationFrameId = requestAnimationFrame(tick);
+    };
+
+    tick();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+      canvas.removeEventListener('mousedown', handleMouseDown);
+      canvas.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('click', handleClick);
+    };
+  }, [drugs, interactions, selectedNode]);
+
+  const nodeInteractions = selectedNode ? interactions.filter(item => 
+    item.Drug_One === selectedNode.label || item.Drug_Two === selectedNode.label
+  ) : [];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+      <div className="card" style={{ position: 'relative', overflow: 'hidden', padding: 0 }}>
+        <div style={{ position: 'absolute', top: 12, left: 16, fontSize: '0.78rem', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.8px', zIndex: 10 }}>
+          Interactive Safety Network Graph
+        </div>
+        <div style={{ position: 'absolute', top: 12, right: 16, fontSize: '0.7rem', color: 'var(--text3)', zIndex: 10 }}>
+          💡 Drag nodes to reorganize. Click to inspect safety warnings.
+        </div>
+        <canvas ref={canvasRef} width={650} height={420} style={{ display: 'block', cursor: 'grab' }} />
+      </div>
+
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="chart-label"><Icon.Shield />Network Clinical Inspector</div>
+        {selectedNode ? (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <h3 style={{ fontSize: '1.2rem', color: 'var(--text)' }}>{selectedNode.label}</h3>
+              <span className="badge badge-blue">{selectedNode.className}</span>
+            </div>
+            
+            <h4 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 10 }}>
+              Safety Warnings ({nodeInteractions.length})
+            </h4>
+            
+            {nodeInteractions.length === 0 ? (
+              <div style={{ padding: 12, borderRadius: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', color: '#047857', fontSize: '0.86rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon.Check style={{ width: 16, height: 16 }} />
+                No known interactions for this drug in our database.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
+                {nodeInteractions.map((item, idx) => {
+                  const partner = item.Drug_One === selectedNode.label ? item.Drug_Two : item.Drug_One;
+                  return (
+                    <div key={idx} style={{ padding: 12, borderRadius: 8, background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: '0.84rem' }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Interacts with {partner}</div>
+                      <div style={{ color: '#4A5578', fontSize: '0.8rem' }}>{item.Interaction_Description}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text3)', textAlign: 'center' }}>
+            <Icon.Alert style={{ width: 32, height: 32, opacity: 0.3, marginBottom: 8 }} />
+            <p style={{ fontSize: '0.88rem' }}>Click a drug node on the network graph to inspect its safety and clinical warning details.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Interactions({ user }) {
   const [data, setData]       = useState([]);
   const [drugs, setDrugs]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setModal] = useState(false);
   const [toast, setToast]     = useState('');
-  const [activeTab, setActiveTab] = useState('LIST'); // LIST or CHECKER
+  const [activeTab, setActiveTab] = useState('LIST'); // LIST, CHECKER, or GRAPH
   const isAdmin = user.role === 'admin';
 
   const load = () => {
@@ -258,6 +579,9 @@ export default function Interactions({ user }) {
         <button className={`tab ${activeTab === 'CHECKER' ? 'active' : ''}`} onClick={() => setActiveTab('CHECKER')}>
           <Icon.Check style={{ display: 'inline', width: 14, height: 14, marginRight: 6 }} />Safety Checker
         </button>
+        <button className={`tab ${activeTab === 'GRAPH' ? 'active' : ''}`} onClick={() => setActiveTab('GRAPH')}>
+          <Icon.Molecule style={{ display: 'inline', width: 14, height: 14, marginRight: 6 }} />Safety Network Graph
+        </button>
       </div>
 
       {activeTab === 'LIST' ? (
@@ -281,8 +605,10 @@ export default function Interactions({ user }) {
             </table>
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'CHECKER' ? (
         <SafetyChecker drugs={drugs} interactions={data} />
+      ) : (
+        <SafetyNetworkGraph drugs={drugs} interactions={data} />
       )}
 
       {showModal && <Modal onClose={() => setModal(false)} onSuccess={(m) => { flash(m); load(); }} />}

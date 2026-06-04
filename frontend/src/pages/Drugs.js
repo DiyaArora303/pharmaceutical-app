@@ -8,6 +8,265 @@ const IconPencil = (p) => (
   </svg>
 );
 
+function MoleculeVisualizer({ formula }) {
+  const canvasRef = React.useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+
+    // Parse formula
+    const parsed = [];
+    const regex = /([A-Z][a-z]*)(\d*)/g;
+    let match;
+    while ((match = regex.exec(formula)) !== null) {
+      parsed.push({ symbol: match[1], count: match[2] ? parseInt(match[2]) : 1 });
+    }
+
+    const nodes = [];
+    const links = [];
+
+    const atomProps = {
+      C: { color: '#4B5563', radius: 10, name: 'Carbon' },
+      H: { color: '#38BDF8', radius: 6, name: 'Hydrogen' },
+      O: { color: '#EF4444', radius: 9, name: 'Oxygen' },
+      N: { color: '#8B5CF6', radius: 9, name: 'Nitrogen' },
+      S: { color: '#F59E0B', radius: 11, name: 'Sulfur' },
+      P: { color: '#EC4899', radius: 11, name: 'Phosphorus' },
+      Cl: { color: '#10B981', radius: 10, name: 'Chlorine' },
+      Na: { color: '#6366F1', radius: 10, name: 'Sodium' }
+    };
+    const defaultProp = { color: '#14B8A6', radius: 8, name: 'Unknown' };
+
+    let idCounter = 0;
+    const carbons = [];
+    const others = [];
+
+    parsed.forEach(atom => {
+      const prop = atomProps[atom.symbol] || defaultProp;
+      // Cap number of atoms to keep the visualization clean
+      const count = Math.min(atom.count, atom.symbol === 'H' ? 6 : atom.symbol === 'C' ? 8 : 4);
+      for (let i = 0; i < count; i++) {
+        const node = {
+          id: idCounter++,
+          symbol: atom.symbol,
+          color: prop.color,
+          radius: prop.radius,
+          name: prop.name,
+          x: canvas.width / 2 + (Math.random() - 0.5) * 120,
+          y: canvas.height / 2 + (Math.random() - 0.5) * 120,
+          vx: 0,
+          vy: 0
+        };
+        nodes.push(node);
+        if (atom.symbol === 'C') carbons.push(node);
+        else others.push(node);
+      }
+    });
+
+    if (nodes.length === 0) {
+      nodes.push({ id: 0, symbol: 'O', color: '#EF4444', radius: 9, name: 'Oxygen', x: 150, y: 100, vx: 0, vy: 0 });
+      nodes.push({ id: 1, symbol: 'H', color: '#38BDF8', radius: 6, name: 'Hydrogen', x: 110, y: 130, vx: 0, vy: 0 });
+      nodes.push({ id: 2, symbol: 'H', color: '#38BDF8', radius: 6, name: 'Hydrogen', x: 190, y: 130, vx: 0, vy: 0 });
+      links.push({ source: 0, target: 1 });
+      links.push({ source: 0, target: 2 });
+    } else {
+      for (let i = 0; i < carbons.length; i++) {
+        if (i > 0) {
+          links.push({ source: carbons[i-1].id, target: carbons[i].id });
+        }
+        if (carbons.length > 3 && i === carbons.length - 1) {
+          links.push({ source: carbons[i].id, target: carbons[0].id });
+        }
+      }
+
+      others.forEach((node, idx) => {
+        if (carbons.length > 0) {
+          const cNode = carbons[idx % carbons.length];
+          links.push({ source: cNode.id, target: node.id });
+        } else if (nodes.length > 1) {
+          links.push({ source: nodes[0].id, target: node.id });
+        }
+      });
+    }
+
+    let hoveredNode = null;
+    let mouseX = 0;
+    let mouseY = 0;
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+      hoveredNode = null;
+      for (let node of nodes) {
+        const dx = node.x - mouseX;
+        const dy = node.y - mouseY;
+        if (dx * dx + dy * dy < (node.radius + 6) * (node.radius + 6)) {
+          hoveredNode = node;
+          break;
+        }
+      }
+    };
+
+    canvas.addEventListener('mousemove', handleMouseMove);
+
+    const kRepulsion = 500;
+    const kSpring = 0.08;
+    const springLength = 45;
+    const gravity = 0.025;
+    const friction = 0.9;
+
+    const update = () => {
+      const w = canvas.width;
+      const h = canvas.height;
+      const cx = w / 2;
+      const cy = h / 2;
+
+      for (let i = 0; i < nodes.length; i++) {
+        const n1 = nodes[i];
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n2 = nodes[j];
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const distSq = dx * dx + dy * dy || 1;
+          const dist = Math.sqrt(distSq);
+          if (dist < 120) {
+            const force = kRepulsion / distSq;
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            n1.vx -= fx;
+            n1.vy -= fy;
+            n2.vx += fx;
+            n2.vy += fy;
+          }
+        }
+      }
+
+      links.forEach(link => {
+        const n1 = nodes.find(n => n.id === link.source);
+        const n2 = nodes.find(n => n.id === link.target);
+        if (!n1 || !n2) return;
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const diff = dist - springLength;
+        const force = diff * kSpring;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        n1.vx += fx;
+        n1.vy += fy;
+        n2.vx -= fx;
+        n2.vy -= fy;
+      });
+
+      nodes.forEach(node => {
+        node.vx += (cx - node.x) * gravity;
+        node.vy += (cy - node.y) * gravity;
+
+        node.x += node.vx;
+        node.y += node.vy;
+        node.vx *= friction;
+        node.vy *= friction;
+
+        if (node.x < node.radius) { node.x = node.radius; node.vx *= -0.5; }
+        if (node.x > w - node.radius) { node.x = w - node.radius; node.vx *= -0.5; }
+        if (node.y < node.radius) { node.y = node.radius; node.vy *= -0.5; }
+        if (node.y > h - node.radius) { node.y = h - node.radius; node.vy *= -0.5; }
+      });
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Grid background
+      ctx.strokeStyle = 'rgba(228, 231, 239, 0.4)';
+      ctx.lineWidth = 1;
+      const gridSize = 20;
+      for (let x = 0; x < canvas.width; x += gridSize) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += gridSize) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+
+      // Bonds
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+      ctx.lineWidth = 2.5;
+      links.forEach(link => {
+        const n1 = nodes.find(n => n.id === link.source);
+        const n2 = nodes.find(n => n.id === link.target);
+        if (!n1 || !n2) return;
+        ctx.beginPath();
+        ctx.moveTo(n1.x, n1.y);
+        ctx.lineTo(n2.x, n2.y);
+        ctx.stroke();
+      });
+
+      // Atoms
+      nodes.forEach(node => {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = node.color;
+
+        ctx.fillStyle = node.color;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (hoveredNode && hoveredNode.id === node.id) {
+          ctx.strokeStyle = 'var(--text)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, node.radius + 3, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `bold ${node.radius > 8 ? 10 : 8}px 'DM Sans', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(node.symbol, node.x, node.y);
+      });
+
+      // Tooltip
+      if (hoveredNode) {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(10, canvas.height - 35, canvas.width - 20, 25);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = `11px 'DM Sans', sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText(`${hoveredNode.name} Atom (${hoveredNode.symbol})`, 20, canvas.height - 23);
+      }
+    };
+
+    const tick = () => {
+      update();
+      draw();
+      animationFrameId = requestAnimationFrame(tick);
+    };
+
+    tick();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      canvas.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [formula]);
+
+  return (
+    <div style={{ position: 'relative', border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: '#FFFFFF', padding: 8 }}>
+      <div style={{ position: 'absolute', top: 8, left: 12, fontSize: '0.68rem', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        Interactive Molecule Simulation
+      </div>
+      <canvas ref={canvasRef} width={410} height={200} style={{ display: 'block', cursor: 'pointer' }} />
+    </div>
+  );
+}
+
 function Modal({ onClose, onSuccess, drugToEdit }) {
   const [meta, setMeta] = useState(null);
   const [form, setForm] = useState({ Brand_Name: '', Generic_ID: '', Therapeutic_Class_ID: '', Dosage_Form_ID: '', Regulatory_Status_ID: '', Ingredient_ID: '', Strength: '', Compound_ID: '' });
@@ -177,9 +436,12 @@ function DetailPanel({ drugId, onClose }) {
             <h4>Chemical Compounds</h4>
             {detail.compounds.length === 0 ? <p className="none-text">None linked</p> : (
               detail.compounds.map(c => (
-                <div key={c.Compound_ID} className="compound-row">
-                  <strong>{c.Compound_Name}</strong>
-                  <span className="formula">{c.Chemical_Formula}</span>
+                <div key={c.Compound_ID} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div className="compound-row">
+                    <strong>{c.Compound_Name}</strong>
+                    <span className="formula">{c.Chemical_Formula}</span>
+                  </div>
+                  {c.Chemical_Formula && <MoleculeVisualizer formula={c.Chemical_Formula} />}
                 </div>
               ))
             )}
