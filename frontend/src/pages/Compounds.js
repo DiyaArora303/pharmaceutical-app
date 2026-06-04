@@ -83,7 +83,6 @@ function MolecularLab({ onCompoundSaved }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    let frameId;
     let startTime = Date.now();
 
     // Setup animation particles
@@ -205,7 +204,7 @@ function MolecularLab({ onCompoundSaved }) {
       }
 
       if (elapsed < 2200) {
-        frameId = requestAnimationFrame(animate);
+        requestAnimationFrame(animate);
       } else {
         // Animation finished
         setSynthesizing(false);

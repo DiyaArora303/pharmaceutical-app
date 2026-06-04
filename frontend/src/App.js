@@ -212,11 +212,7 @@ Form: ${drugLookup.Form_Name}`;
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [drugs, setDrugs] = useState([]);
 
-  useEffect(() => {
-    // Empty useEffect trigger for React Hooks compatibility
-  }, []);
 
   if (!user) return <Login onLogin={setUser} />;
 
