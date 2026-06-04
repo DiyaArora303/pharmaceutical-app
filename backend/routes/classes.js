@@ -5,11 +5,10 @@ const db = require('../db');
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT d.Brand_Name, se.Description, se.Severity, se.SideEffect_ID, d.Drug_ID
-      FROM drug d
-      JOIN drug_side_effect dse ON d.Drug_ID = dse.Drug_ID
-      JOIN side_effect se ON dse.SideEffect_ID = se.SideEffect_ID
-      ORDER BY FIELD(se.Severity,'Severe','Moderate','Mild')
+      SELECT tc.Class_Name, COUNT(d.Drug_ID) AS Drug_Count
+      FROM therapeutic_class tc
+      LEFT JOIN drug d ON tc.Therapeutic_Class_ID = d.Therapeutic_Class_ID
+      GROUP BY tc.Therapeutic_Class_ID, tc.Class_Name
     `);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
