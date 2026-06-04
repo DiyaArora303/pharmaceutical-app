@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, Navigate } from 'react-router-dom';
+import axios from 'axios';
 import { Icon } from './components/Icons';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -73,8 +74,6 @@ function Sidebar({ user, onLogout }) {
     </aside>
   );
 }
-
-import axios from 'axios';
 
 function PharmaBot() {
   const [open, setOpen] = useState(false);
